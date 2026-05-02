@@ -1,1 +1,105 @@
-<h1>karst</h1>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>karst</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    display: flex; align-items: center; justify-content: center;
+    font-family: monospace;
+    overflow: hidden;
+  }
+  #ui {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    cursor: pointer; user-select: none;
+  }
+  #btn {
+    width: 80px; height: 80px; border-radius: 50%;
+    border: 2px solid #fff;
+    background: transparent;
+    transition: background 0.15s;
+  }
+  #btn.playing { background: #fff; }
+  #label {
+    color: #fff; font-size: 13px; letter-spacing: 0.1em;
+  }
+  #error {
+    display: none; color: #fff; font-size: 13px;
+    font-family: monospace; text-align: center; max-width: 320px;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <div id="btn"></div>
+  <div id="label">karst</div>
+</div>
+<div id="error"></div>
+
+<script>
+(async () => {
+    const ui     = document.getElementById('ui');
+    const btn    = document.getElementById('btn');
+    const errDiv = document.getElementById('error');
+
+    function showError(msg) {
+        ui.style.display = 'none';
+        errDiv.style.display = 'block';
+        errDiv.textContent = msg;
+    }
+
+    // Fetch WASM on page load so it's ready before the first click
+    let wasmBuffer;
+    try {
+        const resp = await fetch('karst.wasm');
+        if (!resp.ok) throw new Error(`karst.wasm fetch failed: ${resp.status}`);
+        wasmBuffer = await resp.arrayBuffer();
+    } catch (err) {
+        showError(err.message);
+        return;
+    }
+
+    let started = false;
+
+    ui.addEventListener('click', async () => {
+        if (started) return;
+        started = true;
+
+        let ctx;
+        try {
+            ctx = new AudioContext({ sampleRate: 44100 });
+            await ctx.audioWorklet.addModule('karst-processor.js');
+        } catch (err) {
+            showError('AudioWorklet failed: ' + err.message);
+            started = false;
+            return;
+        }
+
+        const node = new AudioWorkletNode(ctx, 'karst-processor', {
+            numberOfOutputs: 1,
+            outputChannelCount: [2]
+        });
+
+        node.port.onmessage = (e) => {
+            if (e.data.type === 'ready') {
+                node.connect(ctx.destination);
+                btn.classList.add('playing');
+            } else if (e.data.type === 'error') {
+                showError('WASM init failed: ' + e.data.message);
+                started = false;
+            }
+        };
+
+        // Transfer the ArrayBuffer — worklet takes ownership and instantiates its own WASM
+        node.port.postMessage({ type: 'init', wasmBuffer }, [wasmBuffer]);
+    });
+})();
+</script>
+</body>
+</html>
