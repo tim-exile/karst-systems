@@ -74,7 +74,8 @@
             console.log('click fired');
 
             const ctx = new AudioContext({ sampleRate: 44100 });
-            console.log('AudioContext created', ctx.sampleRate);
+            await ctx.resume();
+            console.log('AudioContext created', ctx.sampleRate, 'state:', ctx.state);
 
             await ctx.audioWorklet.addModule('karst-processor.js');
             console.log('worklet module loaded');
@@ -90,6 +91,8 @@
                     console.log('worklet ready — connecting');
                     node.connect(ctx.destination);
                     btn.classList.add('playing');
+                } else if (e.data.type === 'debug') {
+                    console.log('worklet debug:', JSON.stringify(e.data));
                 } else if (e.data.type === 'error') {
                     console.error('worklet error:', e.data.message);
                     showError('worklet error: ' + e.data.message);

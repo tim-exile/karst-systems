@@ -2,10 +2,11 @@ class KarstProcessor extends AudioWorkletProcessor {
     constructor() {
         super();
         this.ready = false;
+        this.errorReported = false;
         this.port.onmessage = (e) => {
             if (e.data.type === 'init') {
                 this._boot(e.data.wasmBuffer).catch(err =>
-                    this.port.postMessage({ type: 'error', message: err.message })
+                    this.port.postMessage({ type: 'error', message: 'boot: ' + err.message })
                 );
             }
         };
@@ -33,10 +34,19 @@ class KarstProcessor extends AudioWorkletProcessor {
         const exp = instance.exports;
         exp.__wasm_call_ctors();
 
-        // Carve output buffers from stack before karst_init
+        // Use malloc (heap) instead of stack alloc — more reliable across JS/WASM boundary
         const bufBytes = 128 * 4;
-        this.outR = exp._emscripten_stack_alloc(bufBytes);
-        this.outL = exp._emscripten_stack_alloc(bufBytes);
+        this.outL = exp.malloc(bufBytes);
+        this.outR = exp.malloc(bufBytes);
+
+        const spNow = exp.emscripten_stack_get_current();
+        this.port.postMessage({
+            type: 'debug',
+            sp: spNow,
+            outL: this.outL,
+            outR: this.outR,
+            memBytes: memory.buffer.byteLength
+        });
 
         exp.karst_init(sampleRate);
 
@@ -50,13 +60,20 @@ class KarstProcessor extends AudioWorkletProcessor {
         if (!this.ready) return true;
         const out       = outputs[0];
         const blockSize = out[0].length;
-        this.exports.karst_process(this.outL, this.outR, blockSize);
-        const heap = new Float32Array(this.memory.buffer);
-        const lOff = this.outL >>> 2;
-        const rOff = this.outR >>> 2;
-        for (let i = 0; i < blockSize; i++) {
-            out[0][i] = heap[lOff + i];
-            if (out[1]) out[1][i] = heap[rOff + i];
+        try {
+            this.exports.karst_process(this.outL, this.outR, blockSize);
+            const heap = new Float32Array(this.memory.buffer);
+            const lOff = this.outL >>> 2;
+            const rOff = this.outR >>> 2;
+            for (let i = 0; i < blockSize; i++) {
+                out[0][i] = heap[lOff + i];
+                if (out[1]) out[1][i] = heap[rOff + i];
+            }
+        } catch (err) {
+            if (!this.errorReported) {
+                this.port.postMessage({ type: 'error', message: 'process: ' + err.message });
+                this.errorReported = true;
+            }
         }
         return true;
     }
