@@ -58,17 +58,18 @@ class KarstProcessor extends AudioWorkletProcessor {
 
     process(inputs, outputs) {
         if (!this.ready) return true;
+        const exp       = this.exports;
         const out       = outputs[0];
         const blockSize = out[0].length;
 
-        // Pure JS test tone — no WASM memory involved
-        if (!this._jsPhase) this._jsPhase = 0;
-        const inc = 2 * Math.PI * 440 / sampleRate;
+        exp.karst_process(this.outL, this.outR, blockSize);
+
+        const heap = new Float32Array(this.memory.buffer);
+        const lOff = this.outL >>> 2;
+        const rOff = this.outR >>> 2;
         for (let i = 0; i < blockSize; i++) {
-            const s = 0.3 * Math.sin(this._jsPhase);
-            out[0][i] = s;
-            if (out[1]) out[1][i] = s;
-            this._jsPhase += inc;
+            out[0][i] = heap[lOff + i];
+            if (out[1]) out[1][i] = heap[rOff + i];
         }
         return true;
     }
