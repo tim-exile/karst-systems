@@ -23,52 +23,80 @@ html, body {
     z-index:10;
     display:flex; flex-direction:column;
     align-items:center; justify-content:center;
-    gap:32px;
+    gap:clamp(16px, 3vw, 28px);
     pointer-events:none;
 }
+#ui::before {
+    content:'';
+    position:absolute;
+    width:520px; height:320px;
+    top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    background:radial-gradient(ellipse at center,
+        rgba(0,0,0,0.52) 0%,
+        rgba(0,0,0,0.28) 50%,
+        rgba(0,0,0,0.0) 100%);
+    pointer-events:none;
+    z-index:-1;
+}
 #play-btn {
-    width:80px; height:80px; border-radius:50%;
+    width:clamp(64px, 12vw, 88px);
+    height:clamp(64px, 12vw, 88px);
+    border-radius:50%;
     border:2px solid rgba(255,255,255,0.9);
     background:transparent;
     cursor:pointer;
     pointer-events:all;
     transition:background 0.2s, border-color 0.2s;
     flex-shrink:0;
+    box-shadow:0 0 0 6px rgba(0,0,0,0.35), 0 0 20px rgba(0,0,0,0.4);
 }
 #play-btn.playing {
     background:rgba(255,255,255,0.9);
 }
 #macros {
-    display:flex; gap:48px; align-items:flex-start;
+    display:flex; gap:clamp(16px, 4vw, 40px); align-items:flex-start;
     pointer-events:all;
 }
 .macro-wrap {
     display:flex; flex-direction:column; align-items:center; gap:8px;
 }
 .macro-knob {
-    width:48px; height:48px; border-radius:50%;
+    width:clamp(40px, 7vw, 52px);
+    height:clamp(40px, 7vw, 52px);
+    border-radius:50%;
     cursor:ns-resize;
     position:relative;
     flex-shrink:0;
 }
 .macro-knob canvas {
-    width:48px; height:48px;
+    width:clamp(40px, 7vw, 52px);
+    height:clamp(40px, 7vw, 52px);
 }
 .macro-label {
     color:rgba(255,255,255,0.6);
     font-size:10px; letter-spacing:0.15em;
     text-align:center;
+    text-shadow:0 0 8px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,1);
 }
 #dice-btn {
-    font-size:28px;
-    background:none; border:none;
-    color:rgba(255,255,255,0.5);
+    width:48px; height:48px;
+    border-radius:50%;
+    border:1.5px solid rgba(255,255,255,0.6);
+    background:rgba(0,0,0,0.3);
+    color:rgba(255,255,255,0.85);
+    font-size:22px;
+    display:flex; align-items:center; justify-content:center;
     cursor:pointer;
     pointer-events:all;
-    transition:color 0.15s;
-    line-height:1;
+    transition:border-color 0.15s, background 0.15s;
+    text-shadow:0 0 6px rgba(0,0,0,0.8);
+    box-shadow:0 0 0 4px rgba(0,0,0,0.25);
 }
-#dice-btn:hover { color:rgba(255,255,255,0.9); }
+#dice-btn:hover {
+    border-color:rgba(255,255,255,0.9);
+    background:rgba(0,0,0,0.5);
+}
 #error {
     position:fixed; top:50%; left:50%;
     transform:translate(-50%,-50%);
@@ -341,23 +369,25 @@ function makeKnob(el, onChange) {
     let startY = 0, startVal = 0, dragging = false;
 
     function draw() {
-        const W = 48, cx = 24, cy = 24, r = 20;
+        const W = cv.clientWidth || 48;
+        cv.width = W; cv.height = W;
+        const cx = W/2, cy = W/2, r = W/2 - 4;
         ctx.clearRect(0, 0, W, W);
         ctx.beginPath();
         ctx.arc(cx, cy, r, Math.PI * 0.75, Math.PI * 2.25);
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)';
         ctx.lineWidth = 2;
         ctx.stroke();
         const startAngle = Math.PI * 0.75;
         const endAngle   = startAngle + value * Math.PI * 1.5;
         ctx.beginPath();
         ctx.arc(cx, cy, r, startAngle, endAngle);
-        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.88)';
         ctx.lineWidth = 2.5;
         ctx.stroke();
         ctx.beginPath();
         ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
         ctx.fill();
     }
 
@@ -524,13 +554,21 @@ const PARAM_DEFAULTS = {
     function applyMacro(macroIdx, knobVal) {
         const paths   = MACRO_PATHS[macroIdx];
         const anchors = macroAnchors[macroIdx];
+
+        let cv = knobVal;
+        if (cv <= 0.5) {
+            cv = 0.5 * Math.pow(cv * 2.0, 2.2);
+        } else {
+            cv = 1.0 - 0.5 * Math.pow((1.0 - cv) * 2.0, 2.2);
+        }
+
         paths.forEach((path, i) => {
-            const anchor = anchors[i];
+            const anchor = anchors[i] > 0 ? anchors[i] : 0.5;
             let newVal;
-            if (knobVal <= 0.5) {
-                newVal = anchor * (knobVal * 2.0);
+            if (cv <= 0.5) {
+                newVal = anchor * (cv * 2.0);
             } else {
-                newVal = anchor + (1.0 - anchor) * ((knobVal - 0.5) * 2.0);
+                newVal = anchor + (1.0 - anchor) * ((cv - 0.5) * 2.0);
             }
             sendParam(path, newVal);
         });
