@@ -141,6 +141,12 @@ class KarstProcessor extends AudioWorkletProcessor {
         this.peakHat    = Math.max(rawHat,    this.peakHat    * 0.75);
         this.peakMaster = Math.max(rawMaster, this.peakMaster * 0.96);
 
+        const snapshotPtr = exp.karst_get_param_snapshot();
+        const heap32      = new Float32Array(this.memory.buffer);
+        const snapOff     = snapshotPtr >>> 2;
+        const snap        = [];
+        for (let i = 0; i < 12; i++) snap.push(heap32[snapOff + i]);
+
         this.blockCount++;
         if (this.blockCount % 2 === 0) {
             this.port.postMessage({
@@ -148,7 +154,8 @@ class KarstProcessor extends AudioWorkletProcessor {
                 peakSynth:  this.peakSynth,
                 peakDrum:   this.peakDrum,
                 peakHat:    this.peakHat,
-                peakMaster: this.peakMaster
+                peakMaster: this.peakMaster,
+                snap
             });
         }
         return true;

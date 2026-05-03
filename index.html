@@ -120,6 +120,18 @@ uniform float uPeakDrum;
 uniform float uPeakHat;
 uniform float uPeakMaster;
 uniform float uPlaying;
+uniform float U0;
+uniform float U1;
+uniform float U2;
+uniform float U3;
+uniform float U4;
+uniform float U5;
+uniform float U6;
+uniform float U7;
+uniform float U8;
+uniform float U9;
+uniform float U10;
+uniform float U11;
 
 float hash(vec2 p) {
     p = fract(p * vec2(234.34, 435.345));
@@ -157,37 +169,58 @@ void main() {
     p.x *= uRes.x / uRes.y;
 
     float t = uTime * 0.08;
+    float PS = uPeakSynth * uPlaying;
+    float PD = uPeakDrum  * uPlaying;
 
-    vec2 stoneUV = uv * 3.0 + vec2(t * 0.3, t * 0.1);
-    float stone = fbm(stoneUV);
+    vec2 wp = vec2(fbm(uv * 2.1 + vec2(t * 0.4, 0.0)),
+                   fbm(uv * 2.1 + vec2(0.0, t * 0.3)));
+    wp += vec2(U8 * 0.15 * sin(t * 1.3 + p.y * 3.0), U8 * 0.1 * cos(t * 1.1 + p.x * 2.0));
+
+    float synthWarp = PS * 1.4 + U2 * 1.2 + U3 * 0.8;
+
+    vec2 stoneUV = uv * 3.0 + vec2(t * 0.3, t * 0.1) + wp * synthWarp * 0.3;
+    float stone  = fbm(stoneUV);
     float stone2 = fbm(stoneUV * 1.7 + vec2(5.3, 2.1));
 
     vec3 stoneLight = vec3(0.91, 0.88, 0.83);
     vec3 stoneDark  = vec3(0.18, 0.16, 0.14);
     vec3 baseCol = mix(stoneDark, stoneLight, stone * 0.7 + stone2 * 0.3);
 
-    float crack1 = fissure(uv, 2.5);
+    float crack1 = fissure(uv, 2.5 + PS * 3.0 + U9 * 3.0 + U1 * 1.5);
     float crack2 = fissure(uv + vec2(0.3, 0.7), 4.1);
     float cracks = max(crack1, crack2 * 0.7);
-    baseCol = mix(baseCol, vec3(0.06, 0.05, 0.04), cracks * 0.85);
+    vec3 crackGlow = vec3(0.06, 0.05, 0.04);
+    baseCol = mix(baseCol, crackGlow, cracks * (0.2 + PS * 0.7 + U1 * 0.8));
 
     float mineralNoise = fbm(uv * 2.0 + vec2(t * 0.15, t * 0.2) + vec2(3.1, 7.4));
     vec3 amber  = vec3(0.76, 0.52, 0.22);
     vec3 violet = vec3(0.38, 0.42, 0.72);
     vec3 mineral = mix(amber, violet, mineralNoise);
 
-    float synthLight = uPeakSynth * uPlaying;
-    float mineralAmt = mineralNoise * 0.15 + synthLight * 0.55;
+    float mineralAmt = mineralNoise * 0.15 + PS * 0.55;
     vec3 col = mix(baseCol, mineral, mineralAmt * smoothstep(0.3, 0.8, stone));
 
-    vec2 drumCentre = vec2(-0.2, 0.1);
-    float drumDist = length(p - drumCentre);
-    float ripple = sin(drumDist * 18.0 - uTime * 6.0) * 0.5 + 0.5;
-    float rippleMask = smoothstep(0.0, 0.3, drumDist) * smoothstep(1.2, 0.2, drumDist);
-    float drumPulse = uPeakDrum * uPlaying * ripple * rippleMask;
-    col += vec3(0.9, 0.85, 0.75) * drumPulse * 0.4;
+    vec3 warm = mix(vec3(1.0, 0.5, 0.05), vec3(0.1, 0.6, 0.9), U0);
+    col = mix(col, warm, 0.3);
 
-    float hatShimmer = noise(uv * 24.0 + vec2(uTime * 2.1, uTime * 1.3));
+    col = mix(col, crackGlow, U10 * 0.3);
+
+    vec2 centreA = vec2(-0.2, 0.1);
+    vec2 centreB = vec2( 0.3, -0.2);
+    float dA = length(p - centreA);
+    float dB = length(p - centreB);
+    float scaledDA = dA * (1.2 + U4 * 1.8);
+    float scaledDB = dB * (1.2 + U4 * 1.8);
+    float rippleA = sin(scaledDA * 18.0 - uTime * 6.0) * 0.5 + 0.5;
+    float rippleB = sin(scaledDB * 14.0 - uTime * 5.0) * 0.5 + 0.5;
+    float maskA = smoothstep(0.0, 0.3, scaledDA) * smoothstep(1.2, 0.2, scaledDA);
+    float maskB = smoothstep(0.0, 0.3, scaledDB) * smoothstep(1.2, 0.2, scaledDB);
+    float heaveA = PD * exp(-dA * (2.0 + U5 * 3.0)) * rippleA * maskA;
+    float heaveB = PD * 0.6 * exp(-dB * (2.0 + U5 * 3.0)) * rippleB * maskB;
+    col += vec3(0.9, 0.85, 0.75) * (heaveA + heaveB) * 0.4;
+
+    float shatterScale = 35.0 + U6 * 30.0;
+    float hatShimmer = noise(uv * shatterScale + vec2(uTime * 2.1, uTime * 1.3));
     col += vec3(0.95, 0.95, 1.0) * hatShimmer * uPeakHat * uPlaying * 0.3;
 
     float waterY = smoothstep(0.4, 0.0, uv.y);
@@ -204,7 +237,7 @@ void main() {
     float grey = dot(col, vec3(0.299, 0.587, 0.114));
     col = mix(vec3(grey * 0.6), col, 0.25 + uPlaying * 0.75);
 
-    float vig = 1.0 - smoothstep(0.5, 1.4, length(p * vec2(0.7, 0.9)));
+    float vig = 1.0 - smoothstep(0.35 + U11 * 0.2, 1.1 + U7 * 0.4, length(p * vec2(0.7, 0.9)));
     col *= vig * 0.85 + 0.15;
 
     gl_FragColor = vec4(col, 1.0);
@@ -251,6 +284,7 @@ function initGL() {
         uPeakHat:    gl.getUniformLocation(prog, 'uPeakHat'),
         uPeakMaster: gl.getUniformLocation(prog, 'uPeakMaster'),
         uPlaying:    gl.getUniformLocation(prog, 'uPlaying'),
+        U:           Array.from({length:12}, (_, i) => gl.getUniformLocation(prog, 'U'+i)),
     };
 
     return { gl, locs, canvas };
@@ -375,6 +409,7 @@ const PARAM_DEFAULTS = {
 (async () => {
     const glState = initGL();
     let uTime=0, uPeakSynth=0, uPeakDrum=0, uPeakHat=0, uPeakMaster=0, uPlaying=0;
+    let snapSmooth = new Array(12).fill(0.5);
 
     if (glState) {
         let last = performance.now();
@@ -390,6 +425,7 @@ const PARAM_DEFAULTS = {
             gl.uniform1f(locs.uPeakHat,    uPeakHat);
             gl.uniform1f(locs.uPeakMaster, uPeakMaster);
             gl.uniform1f(locs.uPlaying,    uPlaying);
+            for (let i = 0; i < 12; i++) gl.uniform1f(locs.U[i], snapSmooth[i]);
             gl.drawArrays(gl.TRIANGLES, 0, 3);
             requestAnimationFrame(frame);
         }
@@ -515,6 +551,10 @@ const PARAM_DEFAULTS = {
                             uPeakDrum   += (e.data.peakDrum   - uPeakDrum)   * 0.15;
                             uPeakHat    += (e.data.peakHat    - uPeakHat)    * 0.20;
                             uPeakMaster += (e.data.peakMaster - uPeakMaster) * 0.06;
+                            if (e.data.snap) {
+                                for (let i = 0; i < 12; i++)
+                                    snapSmooth[i] += (e.data.snap[i] - snapSmooth[i]) * 0.04;
+                            }
                         } else if (e.data.type === 'error') {
                             showError('worklet: ' + e.data.message);
                         }
