@@ -425,7 +425,10 @@ const PARAM_DEFAULTS = {
 
     function sendParam(path, value) {
         paramState[path] = value;
-        if (workletNode) workletNode.port.postMessage({ type: 'setParam', path, value });
+        if (workletNode) {
+            console.log('sendParam', path, value);
+            workletNode.port.postMessage({ type: 'setParam', path, value });
+        }
     }
 
     function applyMacro(macroIdx, knobVal) {

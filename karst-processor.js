@@ -21,7 +21,10 @@ class KarstProcessor extends AudioWorkletProcessor {
                     );
                     break;
                 case 'setParam':
-                    if (this.exports) this._setParam(e.data.path, e.data.value);
+                    if (this.exports) {
+                        try { this._setParam(e.data.path, e.data.value); }
+                        catch(err) { this.port.postMessage({ type: 'error', message: 'setParam ' + e.data.path + ': ' + err.message }); }
+                    }
                     break;
                 case 'setPlaying':
                     if (this.exports) this.exports.karst_set_playing(e.data.value);
@@ -31,10 +34,10 @@ class KarstProcessor extends AudioWorkletProcessor {
     }
 
     _setParam(path, value) {
-        const bytes = new TextEncoder().encode(path);
-        const heap  = new Uint8Array(this.memory.buffer);
-        heap.set(bytes, this.pathBuf);
-        heap[this.pathBuf + bytes.length] = 0;
+        const heap = new Uint8Array(this.memory.buffer);
+        for (let j = 0; j < path.length; j++)
+            heap[this.pathBuf + j] = path.charCodeAt(j);
+        heap[this.pathBuf + path.length] = 0;
         this.exports.karst_set_param(this.pathBuf, value);
     }
 
