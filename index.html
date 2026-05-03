@@ -23,25 +23,18 @@ html, body {
     z-index:10;
     display:flex; flex-direction:column;
     align-items:center; justify-content:center;
-    gap:clamp(16px, 3vw, 28px);
     pointer-events:none;
 }
-#ui::before {
-    content:'';
-    position:absolute;
-    width:clamp(280px, 55vmin, 580px);
-    aspect-ratio:1 / 1;
-    top:50%; left:50%;
-    transform:translate(-50%,-50%);
-    background:radial-gradient(circle at center,
-        rgba(0,0,0,0.82) 0%,
-        rgba(0,0,0,0.68) 20%,
-        rgba(0,0,0,0.38) 55%,
-        rgba(0,0,0,0.10) 80%,
-        rgba(0,0,0,0.0)  100%);
-    pointer-events:none;
-    z-index:-1;
-    border-radius:50%;
+#ui-panel {
+    display:flex; flex-direction:column;
+    align-items:center;
+    gap:clamp(16px, 3vw, 28px);
+    padding:clamp(24px, 4vw, 40px) clamp(20px, 4vw, 40px);
+    background:rgba(0,0,0,0.42);
+    backdrop-filter:blur(2px);
+    -webkit-backdrop-filter:blur(2px);
+    border-radius:20px;
+    pointer-events:all;
 }
 #play-btn {
     width:clamp(52px, 9vw, 68px);
@@ -107,26 +100,28 @@ html, body {
 <body>
 <canvas id="glcanvas"></canvas>
 <div id="ui">
-    <button id="play-btn"></button>
-    <div id="macros">
-        <div class="macro-wrap">
-            <div class="macro-knob" data-macro="0"><canvas width="48" height="48"></canvas></div>
-            <div class="macro-label">TEXTURE</div>
+    <div id="ui-panel">
+        <button id="play-btn"></button>
+        <div id="macros">
+            <div class="macro-wrap">
+                <div class="macro-knob" data-macro="0"><canvas width="48" height="48"></canvas></div>
+                <div class="macro-label">TEXTURE</div>
+            </div>
+            <div class="macro-wrap">
+                <div class="macro-knob" data-macro="1"><canvas width="48" height="48"></canvas></div>
+                <div class="macro-label">SPACE</div>
+            </div>
+            <div class="macro-wrap">
+                <div class="macro-knob" data-macro="2"><canvas width="48" height="48"></canvas></div>
+                <div class="macro-label">DENSITY</div>
+            </div>
+            <div class="macro-wrap">
+                <div class="macro-knob" data-macro="3"><canvas width="48" height="48"></canvas></div>
+                <div class="macro-label">MOTION</div>
+            </div>
         </div>
-        <div class="macro-wrap">
-            <div class="macro-knob" data-macro="1"><canvas width="48" height="48"></canvas></div>
-            <div class="macro-label">SPACE</div>
-        </div>
-        <div class="macro-wrap">
-            <div class="macro-knob" data-macro="2"><canvas width="48" height="48"></canvas></div>
-            <div class="macro-label">DENSITY</div>
-        </div>
-        <div class="macro-wrap">
-            <div class="macro-knob" data-macro="3"><canvas width="48" height="48"></canvas></div>
-            <div class="macro-label">MOTION</div>
-        </div>
+        <button id="dice-btn">⚄</button>
     </div>
-    <button id="dice-btn">⚄</button>
 </div>
 <div id="error"></div>
 
