@@ -5,109 +5,534 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>karst</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body {
-    width: 100%; height: 100%;
-    background: #000;
-    display: flex; align-items: center; justify-content: center;
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+    width:100%; height:100%;
+    background:#000;
+    overflow:hidden;
     font-family: monospace;
-    overflow: hidden;
-  }
-  #ui {
-    display: flex; flex-direction: column; align-items: center; gap: 12px;
-    cursor: pointer; user-select: none;
-  }
-  #btn {
-    width: 80px; height: 80px; border-radius: 50%;
-    border: 2px solid #fff;
-    background: transparent;
-    transition: background 0.15s;
-  }
-  #btn.playing { background: #fff; }
-  #label { color: #fff; font-size: 13px; letter-spacing: 0.1em; }
-  #error {
-    display: none; color: #fff; font-size: 13px;
-    font-family: monospace; text-align: center; max-width: 320px;
-    line-height: 1.5;
-  }
+}
+#glcanvas {
+    position:fixed; top:0; left:0;
+    width:100%; height:100%;
+    z-index:0;
+}
+#ui {
+    position:fixed; top:0; left:0;
+    width:100%; height:100%;
+    z-index:10;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    gap:32px;
+    pointer-events:none;
+}
+#play-btn {
+    width:80px; height:80px; border-radius:50%;
+    border:2px solid rgba(255,255,255,0.9);
+    background:transparent;
+    cursor:pointer;
+    pointer-events:all;
+    transition:background 0.2s, border-color 0.2s;
+    flex-shrink:0;
+}
+#play-btn.playing {
+    background:rgba(255,255,255,0.9);
+}
+#macros {
+    display:flex; gap:48px; align-items:flex-start;
+    pointer-events:all;
+}
+.macro-wrap {
+    display:flex; flex-direction:column; align-items:center; gap:8px;
+}
+.macro-knob {
+    width:48px; height:48px; border-radius:50%;
+    cursor:ns-resize;
+    position:relative;
+    flex-shrink:0;
+}
+.macro-knob canvas {
+    width:48px; height:48px;
+}
+.macro-label {
+    color:rgba(255,255,255,0.6);
+    font-size:10px; letter-spacing:0.15em;
+    text-align:center;
+}
+#dice-btn {
+    font-size:28px;
+    background:none; border:none;
+    color:rgba(255,255,255,0.5);
+    cursor:pointer;
+    pointer-events:all;
+    transition:color 0.15s;
+    line-height:1;
+}
+#dice-btn:hover { color:rgba(255,255,255,0.9); }
+#error {
+    position:fixed; top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    color:#fff; font-size:13px; font-family:monospace;
+    text-align:center; z-index:20;
+    display:none;
+}
 </style>
 </head>
 <body>
-
+<canvas id="glcanvas"></canvas>
 <div id="ui">
-  <div id="btn"></div>
-  <div id="label">karst</div>
+    <button id="play-btn"></button>
+    <div id="macros">
+        <div class="macro-wrap">
+            <div class="macro-knob" data-macro="0"><canvas width="48" height="48"></canvas></div>
+            <div class="macro-label">TEXTURE</div>
+        </div>
+        <div class="macro-wrap">
+            <div class="macro-knob" data-macro="1"><canvas width="48" height="48"></canvas></div>
+            <div class="macro-label">SPACE</div>
+        </div>
+        <div class="macro-wrap">
+            <div class="macro-knob" data-macro="2"><canvas width="48" height="48"></canvas></div>
+            <div class="macro-label">DENSITY</div>
+        </div>
+        <div class="macro-wrap">
+            <div class="macro-knob" data-macro="3"><canvas width="48" height="48"></canvas></div>
+            <div class="macro-label">MOTION</div>
+        </div>
+    </div>
+    <button id="dice-btn">⚄</button>
 </div>
 <div id="error"></div>
 
 <script>
-(async () => {
-    const ui     = document.getElementById('ui');
-    const btn    = document.getElementById('btn');
-    const errDiv = document.getElementById('error');
+// ─── SHADER ──────────────────────────────────────────────────────────────────
+const VS = `
+attribute vec2 aPos;
+void main() { gl_Position = vec4(aPos, 0.0, 1.0); }
+`;
 
-    function showError(msg) {
-        ui.style.display = 'none';
-        errDiv.style.display = 'block';
-        errDiv.textContent = msg;
+const FS = `
+precision highp float;
+uniform float uTime;
+uniform vec2  uRes;
+uniform float uPeakSynth;
+uniform float uPeakDrum;
+uniform float uPeakHat;
+uniform float uPeakMaster;
+uniform float uPlaying;
+
+// fBm noise from sin harmonics
+float hash(vec2 p) {
+    p = fract(p * vec2(234.34, 435.345));
+    p += dot(p, p + 34.23);
+    return fract(p.x * p.y);
+}
+float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f*f*(3.0-2.0*f);
+    return mix(
+        mix(hash(i), hash(i+vec2(1,0)), f.x),
+        mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x),
+        f.y);
+}
+float fbm(vec2 p) {
+    float v=0.0, a=0.5;
+    for(int i=0;i<6;i++){
+        v += a * noise(p);
+        p = p * 2.1 + vec2(1.3, 1.7);
+        a *= 0.5;
+    }
+    return v;
+}
+
+// Fissure pattern — sharp angular cracks
+float fissure(vec2 p, float scale) {
+    vec2 q = p * scale;
+    float f = fbm(q + vec2(uTime * 0.01));
+    float crack = abs(fract(f * 4.0) - 0.5);
+    return smoothstep(0.05, 0.0, crack);
+}
+
+void main() {
+    vec2 uv = gl_FragCoord.xy / uRes;
+    vec2 p = uv * 2.0 - 1.0;
+    p.x *= uRes.x / uRes.y;
+
+    float t = uTime * 0.08;
+
+    // Base stone noise — slow evolution
+    vec2 stoneUV = uv * 3.0 + vec2(t * 0.3, t * 0.1);
+    float stone = fbm(stoneUV);
+    float stone2 = fbm(stoneUV * 1.7 + vec2(5.3, 2.1));
+
+    // Limestone base colour — pale warm grey
+    vec3 stoneLight = vec3(0.91, 0.88, 0.83);
+    vec3 stoneDark  = vec3(0.18, 0.16, 0.14);
+    vec3 baseCol = mix(stoneDark, stoneLight, stone * 0.7 + stone2 * 0.3);
+
+    // Fissures — dark cracks
+    float crack1 = fissure(uv, 2.5);
+    float crack2 = fissure(uv + vec2(0.3, 0.7), 4.1);
+    float cracks = max(crack1, crack2 * 0.7);
+    baseCol = mix(baseCol, vec3(0.06, 0.05, 0.04), cracks * 0.85);
+
+    // Mineral staining — amber and violet
+    float mineralNoise = fbm(uv * 2.0 + vec2(t * 0.15, t * 0.2) + vec2(3.1, 7.4));
+    vec3 amber  = vec3(0.76, 0.52, 0.22);
+    vec3 violet = vec3(0.38, 0.42, 0.72);
+    vec3 mineral = mix(amber, violet, mineralNoise);
+
+    // Synth drives chromatic mineral light
+    float synthLight = uPeakSynth * uPlaying;
+    float mineralAmt = mineralNoise * 0.15 + synthLight * 0.55;
+    vec3 col = mix(baseCol, mineral, mineralAmt * smoothstep(0.3, 0.8, stone));
+
+    // Drum hit — concentric ripple from off-centre point
+    vec2 drumCentre = vec2(-0.2, 0.1);
+    float drumDist = length(p - drumCentre);
+    float ripple = sin(drumDist * 18.0 - uTime * 6.0) * 0.5 + 0.5;
+    float rippleMask = smoothstep(0.0, 0.3, drumDist) * smoothstep(1.2, 0.2, drumDist);
+    float drumPulse = uPeakDrum * uPlaying * ripple * rippleMask;
+    col += vec3(0.9, 0.85, 0.75) * drumPulse * 0.4;
+
+    // Hat — fine surface shimmer, high frequency
+    float hatShimmer = noise(uv * 24.0 + vec2(uTime * 2.1, uTime * 1.3));
+    col += vec3(0.95, 0.95, 1.0) * hatShimmer * uPeakHat * uPlaying * 0.3;
+
+    // Water shimmer — bottom third
+    float waterY = smoothstep(0.4, 0.0, uv.y);
+    float waterNoise = noise(vec2(uv.x * 8.0 + uTime * 0.4, uTime * 0.3));
+    float waterL = noise(vec2(uv.x * 6.0 - uTime * 0.2, uTime * 0.5));
+    vec3 waterCol = vec3(0.3, 0.45, 0.62);
+    float waterAmt = waterY * waterNoise * (0.08 + uPeakMaster * 0.12 * uPlaying);
+    waterAmt += waterY * waterL * uPlaying * 0.06;
+    col = mix(col, waterCol, waterAmt);
+
+    // Fine grain erosion texture
+    float grain = noise(uv * 180.0 + vec2(t * 0.5)) * 0.04;
+    col += grain;
+
+    // Playing state — colour saturation ramps in
+    float grey = dot(col, vec3(0.299, 0.587, 0.114));
+    col = mix(vec3(grey * 0.6), col, 0.25 + uPlaying * 0.75);
+
+    // Vignette
+    float vig = 1.0 - smoothstep(0.5, 1.4, length(p * vec2(0.7, 0.9)));
+    col *= vig * 0.85 + 0.15;
+
+    gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+function initGL() {
+    const canvas = document.getElementById('glcanvas');
+    const gl = canvas.getContext('webgl');
+    if (!gl) return null;
+
+    function resize() {
+        canvas.width  = window.innerWidth;
+        canvas.height = window.innerHeight;
+        gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    function compile(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        return s;
+    }
+    const prog = gl.createProgram();
+    gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,3,-1,-1,3]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(prog, 'aPos');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    const locs = {
+        uTime:       gl.getUniformLocation(prog, 'uTime'),
+        uRes:        gl.getUniformLocation(prog, 'uRes'),
+        uPeakSynth:  gl.getUniformLocation(prog, 'uPeakSynth'),
+        uPeakDrum:   gl.getUniformLocation(prog, 'uPeakDrum'),
+        uPeakHat:    gl.getUniformLocation(prog, 'uPeakHat'),
+        uPeakMaster: gl.getUniformLocation(prog, 'uPeakMaster'),
+        uPlaying:    gl.getUniformLocation(prog, 'uPlaying'),
+    };
+
+    return { gl, prog, locs, canvas };
+}
+
+// ─── KNOB ────────────────────────────────────────────────────────────────────
+function makeKnob(el, onChange) {
+    const cv  = el.querySelector('canvas');
+    const ctx = cv.getContext('2d');
+    let value = 0.5;
+    let startY = 0, startVal = 0, dragging = false;
+
+    function draw() {
+        const W = 48, cx = 24, cy = 24, r = 20;
+        ctx.clearRect(0, 0, W, W);
+        // Track
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, Math.PI * 0.75, Math.PI * 2.25);
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Value arc
+        const startAngle = Math.PI * 0.75;
+        const endAngle   = startAngle + value * Math.PI * 1.5;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, startAngle, endAngle);
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        // Centre dot
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fill();
     }
 
-    // Fetch WASM as raw bytes on page load
-    let wasmBuffer;
+    el.addEventListener('mousedown', e => {
+        dragging = true; startY = e.clientY; startVal = value;
+        e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        const delta = (startY - e.clientY) / 150;
+        value = Math.max(0, Math.min(1, startVal + delta));
+        draw();
+        onChange(value);
+    });
+    window.addEventListener('mouseup', () => { dragging = false; });
+
+    // Touch
+    el.addEventListener('touchstart', e => {
+        dragging = true;
+        startY = e.touches[0].clientY; startVal = value;
+        e.preventDefault();
+    }, { passive: false });
+    window.addEventListener('touchmove', e => {
+        if (!dragging) return;
+        const delta = (startY - e.touches[0].clientY) / 150;
+        value = Math.max(0, Math.min(1, startVal + delta));
+        draw();
+        onChange(value);
+    });
+    window.addEventListener('touchend', () => { dragging = false; });
+
+    draw();
+    return { getValue: () => value, setValue: v => { value = v; draw(); } };
+}
+
+// ─── MACRO PATHS ─────────────────────────────────────────────────────────────
+const MACRO_PATHS = [
+    // TEXTURE
+    ['synthA.filter.cutoff','synthA.filter.resonance','synthB.mod.mod1to2',
+     'synthB.mod.mod2to1','synthB.op2.ratio','snare.noise.snap','hat.filter.pitch',
+     'delay.feedback.resonance','synthA.pattern.sCyc','synthB.pattern.sCyc'],
+    // SPACE
+    ['delay.out.mix','reverb.verb.mix','delay.feedback.amount','reverb.verb.size',
+     'reverb.verb.decay','mixer.chSynthA.delaySend','mixer.chSynthB.delaySend',
+     'mixer.chSynthA.reverbSend','mixer.chSynthB.reverbSend'],
+    // DENSITY
+    ['synthA.out.level','synthB.out.level','kick.out.level','snare.out.level',
+     'hat.out.level','synthB.op2.level','mixer.chSynthA.level','mixer.chSynthB.level',
+     'mixer.chKick.level','mixer.chSnare.level','mixer.chHat.level',
+     'synthA.pattern.range','synthB.pattern.range'],
+    // MOTION
+    ['synthA.amp.attack','synthA.amp.decay','synthA.filter.attack','synthA.filter.decay',
+     'synthB.op1.attack','synthB.op1.decay','synthB.op2.attack','synthB.op2.decay',
+     'kick.body.sweep','kick.amp.attack','kick.amp.decay',
+     'snare.noise.attack','snare.noise.decay','snare.body.attack','snare.body.decay',
+     'hat.amp.attack','hat.amp.decay',
+     'synthA.pattern.intensity','synthB.pattern.intensity','kick.pattern.intensity',
+     'snare.pattern.intensity','hat.pattern.intensity']
+];
+
+const STRUCTURAL = ['phraseLen','meter','mask','lvCyc','lvOff','ornBase','bpm'];
+
+// ─── MAIN ────────────────────────────────────────────────────────────────────
+(async () => {
+    const glState = initGL();
+    let uTime=0, uPeakSynth=0, uPeakDrum=0, uPeakHat=0, uPeakMaster=0, uPlaying=0;
+
+    // Shader loop
+    if (glState) {
+        let last = performance.now();
+        function frame(now) {
+            const dt = (now - last) / 1000;
+            last = now;
+            uTime += dt;
+
+            const { gl, locs, canvas } = glState;
+            gl.uniform1f(locs.uTime,       uTime);
+            gl.uniform2f(locs.uRes,        canvas.width, canvas.height);
+            gl.uniform1f(locs.uPeakSynth,  uPeakSynth);
+            gl.uniform1f(locs.uPeakDrum,   uPeakDrum);
+            gl.uniform1f(locs.uPeakHat,    uPeakHat);
+            gl.uniform1f(locs.uPeakMaster, uPeakMaster);
+            gl.uniform1f(locs.uPlaying,    uPlaying);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+            requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+    }
+
+    function showError(msg) {
+        document.getElementById('error').style.display = 'block';
+        document.getElementById('error').textContent = 'WASM init failed: ' + msg;
+    }
+
+    // Load WASM via karst.js glue on main thread
+    let wasmReady = false;
+    let ModuleObj = null;
+    let outL = 0, outR = 0;
+
+    await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'karst.js';
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('karst.js load failed'));
+        document.head.appendChild(s);
+    });
+
+    // Wait for Emscripten Module to finish initialising
     try {
-        const resp = await fetch('karst.wasm');
-        if (!resp.ok) throw new Error('karst.wasm fetch failed: ' + resp.status);
-        wasmBuffer = await resp.arrayBuffer();
-        console.log('karst.wasm loaded', wasmBuffer.byteLength, 'bytes');
-    } catch (err) {
-        showError(err.message);
+        ModuleObj = await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('Module init timeout')), 10000);
+            const check = () => {
+                if (typeof Module !== 'undefined' && Module.calledRun) {
+                    clearTimeout(timeout);
+                    resolve(Module);
+                } else {
+                    setTimeout(check, 50);
+                }
+            };
+            check();
+        });
+    } catch(e) {
+        showError(e.message);
         return;
     }
 
-    let started = false;
+    // Allocate output buffers and initialise engine on main thread
+    outL = ModuleObj._malloc(128 * 4);
+    outR = ModuleObj._malloc(128 * 4);
+    ModuleObj._karst_init(44100);
+    wasmReady = true;
 
-    ui.addEventListener('click', async () => {
-        if (started) return;
-        started = true;
+    // Macro anchor values — captured at play time
+    let macroAnchors = MACRO_PATHS.map(paths =>
+        paths.map(p => ModuleObj.ccall('karst_get_param','number',['string'],[p]))
+    );
 
-        try {
-            console.log('click fired');
+    function applyMacro(macroIdx, knobVal) {
+        const paths   = MACRO_PATHS[macroIdx];
+        const anchors = macroAnchors[macroIdx];
+        paths.forEach((path, i) => {
+            const anchor = anchors[i];
+            let newVal;
+            if (knobVal <= 0.5) {
+                const t = knobVal * 2.0;
+                newVal = anchor * t;
+            } else {
+                const t = (knobVal - 0.5) * 2.0;
+                newVal = anchor + (1.0 - anchor) * t;
+            }
+            ModuleObj.ccall('karst_set_param','null',['string','number'],[path, newVal]);
+        });
+    }
 
-            const ctx = new AudioContext({ sampleRate: 44100 });
-            await ctx.resume();
-            console.log('AudioContext created', ctx.sampleRate, 'state:', ctx.state);
+    // Knobs
+    const knobEls = document.querySelectorAll('.macro-knob');
+    const knobs = Array.from(knobEls).map((el, i) =>
+        makeKnob(el, val => { if (wasmReady) applyMacro(i, val); })
+    );
 
-            await ctx.audioWorklet.addModule('karst-processor.js');
-            console.log('worklet module loaded');
+    // Dice
+    document.getElementById('dice-btn').addEventListener('click', () => {
+        if (!wasmReady) return;
+        const allPaths = [...new Set(MACRO_PATHS.flat())];
+        allPaths.forEach(path => {
+            const isStructural = STRUCTURAL.some(s => path.includes(s));
+            if (isStructural) return;
+            const val = 0.3 + Math.random() * 0.4;
+            ModuleObj.ccall('karst_set_param','null',['string','number'],[path, val]);
+        });
+        // Refresh macro anchors
+        macroAnchors = MACRO_PATHS.map(paths =>
+            paths.map(p => ModuleObj.ccall('karst_get_param','number',['string'],[p]))
+        );
+        knobs.forEach(k => k.setValue(0.5));
+    });
 
-            const node = new AudioWorkletNode(ctx, 'karst-processor', {
-                numberOfOutputs: 1,
-                outputChannelCount: [2]
-            });
-            console.log('node created');
+    // Play/stop
+    let playing = false;
+    let audioCtx = null;
+    let workletNode = null;
 
-            node.port.onmessage = (e) => {
-                if (e.data.type === 'ready') {
-                    console.log('worklet ready — connecting');
-                    node.connect(ctx.destination);
-                    btn.classList.add('playing');
-                } else if (e.data.type === 'debug') {
-                    console.log('worklet debug:', JSON.stringify(e.data));
-                } else if (e.data.type === 'error') {
-                    console.error('worklet error:', e.data.message);
-                    showError('worklet error: ' + e.data.message);
-                    started = false;
-                }
-            };
+    document.getElementById('play-btn').addEventListener('click', async () => {
+        if (!wasmReady) return;
 
-            console.log('posting init to worklet');
-            // Transfer ownership of the ArrayBuffer — worklet instantiates its own WASM
-            node.port.postMessage({ type: 'init', wasmBuffer }, [wasmBuffer]);
-            console.log('init posted');
-        } catch (err) {
-            console.error('click handler error:', err);
-            showError(err.message);
-            started = false;
+        if (!playing) {
+            if (!audioCtx) {
+                audioCtx = new AudioContext({ sampleRate: 44100 });
+                await audioCtx.audioWorklet.addModule('karst-processor.js');
+                workletNode = new AudioWorkletNode(audioCtx, 'karst-processor', {
+                    numberOfOutputs: 1,
+                    outputChannelCount: [2]
+                });
+                workletNode.port.onmessage = (e) => {
+                    if (e.data.type === 'peaks') {
+                        uPeakSynth  += (e.data.peakSynth  - uPeakSynth)  * 0.08;
+                        uPeakDrum   += (e.data.peakDrum   - uPeakDrum)   * 0.15;
+                        uPeakHat    += (e.data.peakHat    - uPeakHat)    * 0.20;
+                        uPeakMaster += (e.data.peakMaster - uPeakMaster) * 0.06;
+                    }
+                };
+                workletNode.connect(audioCtx.destination);
+
+                // Build exports object from karst.js globals (wasmMemory, _karst_* fns)
+                workletNode.port.postMessage({
+                    type: 'init',
+                    exports: {
+                        karst_process:         _karst_process,
+                        karst_get_peak_synth:  _karst_get_peak_synth,
+                        karst_get_peak_drum:   _karst_get_peak_drum,
+                        karst_get_peak_hat:    _karst_get_peak_hat,
+                        karst_get_peak_master: _karst_get_peak_master,
+                        karst_set_playing:     _karst_set_playing,
+                    },
+                    memory: wasmMemory,
+                    outL, outR
+                });
+            }
+            ModuleObj._karst_set_playing(1);
+            if (workletNode) workletNode.port.postMessage({ type: 'playing', value: 1 });
+            uPlaying = 1;
+            playing = true;
+            document.getElementById('play-btn').classList.add('playing');
+
+            // Capture macro anchors fresh
+            macroAnchors = MACRO_PATHS.map(paths =>
+                paths.map(p => ModuleObj.ccall('karst_get_param','number',['string'],[p]))
+            );
+            knobs.forEach(k => k.setValue(0.5));
+
+        } else {
+            ModuleObj._karst_set_playing(0);
+            if (workletNode) workletNode.port.postMessage({ type: 'playing', value: 0 });
+            uPlaying = 0;
+            playing = false;
+            document.getElementById('play-btn').classList.remove('playing');
         }
     });
 })();

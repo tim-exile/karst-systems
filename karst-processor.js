@@ -1,68 +1,35 @@
 class KarstProcessor extends AudioWorkletProcessor {
     constructor() {
         super();
-        this.ready = false;
-        this.errorReported = false;
+        this.ready   = false;
+        this.exports = null;
+        this.memory  = null;
+        this.outL    = 0;
+        this.outR    = 0;
+        this.blockCount = 0;
+        this.peakDrum   = 0;
+        this.peakHat    = 0;
+        this.peakSynth  = 0;
+        this.peakMaster = 0;
         this.port.onmessage = (e) => {
             if (e.data.type === 'init') {
-                this._boot(e.data.wasmBuffer).catch(err =>
-                    this.port.postMessage({ type: 'error', message: 'boot: ' + err.message })
-                );
+                this.exports = e.data.exports;
+                this.memory  = e.data.memory;
+                this.outL    = e.data.outL;
+                this.outR    = e.data.outR;
+                this.ready   = true;
+            } else if (e.data.type === 'playing') {
+                if (this.exports) this.exports.karst_set_playing(e.data.value);
             }
         };
-    }
-
-    async _boot(wasmBuffer) {
-        const memory = new WebAssembly.Memory({ initial: 512 });
-
-        const stubs = {
-            __assert_fail:        () => {},
-            __cxa_throw:          () => {},
-            _abort_js:            () => {},
-            emscripten_resize_heap: (size) => {
-                const pages = Math.ceil((size - memory.buffer.byteLength) / 65536);
-                if (pages > 0) memory.grow(pages);
-                return 1;
-            }
-        };
-
-        const { instance } = await WebAssembly.instantiate(wasmBuffer, {
-            env:                    { memory, ...stubs },
-            wasi_snapshot_preview1: {}
-        });
-
-        const exp = instance.exports;
-        exp.__wasm_call_ctors();
-
-        // Use malloc (heap) instead of stack alloc — more reliable across JS/WASM boundary
-        const bufBytes = 128 * 4;
-        this.outL = exp.malloc(bufBytes);
-        this.outR = exp.malloc(bufBytes);
-
-        const spNow = exp.emscripten_stack_get_current();
-        this.port.postMessage({
-            type: 'debug',
-            sp: spNow,
-            outL: this.outL,
-            outR: this.outR,
-            memBytes: memory.buffer.byteLength
-        });
-
-        exp.karst_init(sampleRate);
-
-        this.exports = exp;
-        this.memory  = exp.memory || memory;
-        this.ready   = true;
-        this.port.postMessage({ type: 'ready' });
     }
 
     process(inputs, outputs) {
         if (!this.ready) return true;
-        const exp       = this.exports;
-        const out       = outputs[0];
+        const out = outputs[0];
         const blockSize = out[0].length;
 
-        exp.karst_process(this.outL, this.outR, blockSize);
+        this.exports.karst_process(this.outL, this.outR, blockSize);
 
         const heap = new Float32Array(this.memory.buffer);
         const lOff = this.outL >>> 2;
@@ -71,8 +38,29 @@ class KarstProcessor extends AudioWorkletProcessor {
             out[0][i] = heap[lOff + i];
             if (out[1]) out[1][i] = heap[rOff + i];
         }
+
+        // Per-instrument peaks with envelope followers
+        const rawSynth  = this.exports.karst_get_peak_synth();
+        const rawDrum   = this.exports.karst_get_peak_drum();
+        const rawHat    = this.exports.karst_get_peak_hat();
+        const rawMaster = this.exports.karst_get_peak_master();
+
+        this.peakSynth  = Math.max(rawSynth,  this.peakSynth  * 0.92);
+        this.peakDrum   = Math.max(rawDrum,   this.peakDrum   * 0.85);
+        this.peakHat    = Math.max(rawHat,    this.peakHat    * 0.75);
+        this.peakMaster = Math.max(rawMaster, this.peakMaster * 0.96);
+
+        this.blockCount++;
+        if (this.blockCount % 2 === 0) {
+            this.port.postMessage({
+                type: 'peaks',
+                peakSynth:  this.peakSynth,
+                peakDrum:   this.peakDrum,
+                peakHat:    this.peakHat,
+                peakMaster: this.peakMaster
+            });
+        }
         return true;
     }
 }
-
 registerProcessor('karst-processor', KarstProcessor);
