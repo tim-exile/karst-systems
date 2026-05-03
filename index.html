@@ -29,13 +29,16 @@ html, body {
 #ui::before {
     content:'';
     position:absolute;
-    width:70%; height:65%;
+    width:clamp(280px, 55vmin, 580px);
+    aspect-ratio:1 / 1;
     top:50%; left:50%;
     transform:translate(-50%,-50%);
-    background:radial-gradient(ellipse 60% 55% at center,
-        rgba(0,0,0,0.48) 0%,
-        rgba(0,0,0,0.22) 50%,
-        rgba(0,0,0,0.0) 100%);
+    background:radial-gradient(circle at center,
+        rgba(0,0,0,0.82) 0%,
+        rgba(0,0,0,0.68) 20%,
+        rgba(0,0,0,0.38) 55%,
+        rgba(0,0,0,0.10) 80%,
+        rgba(0,0,0,0.0)  100%);
     pointer-events:none;
     z-index:-1;
     border-radius:50%;
