@@ -114,6 +114,17 @@ html, body {
 #dice-btn:hover {
     color:rgba(255,255,255,1);
 }
+#silent-notice {
+    display:none;
+    color:rgba(255,255,255,0.5);
+    font-size:11px; letter-spacing:0.1em;
+    text-align:center;
+    text-shadow:0 0 8px rgba(0,0,0,0.9);
+    cursor:pointer;
+    padding-top:4px;
+    border-top:1px solid rgba(255,255,255,0.1);
+    width:100%;
+}
 #error {
     position:fixed; top:50%; left:50%;
     transform:translate(-50%,-50%);
@@ -150,6 +161,7 @@ html, body {
             </div>
         </div>
         <button id="dice-btn">⚄</button>
+        <div id="silent-notice">turn off silent mode</div>
     </div>
 </div>
 <div id="error"></div>
@@ -702,6 +714,13 @@ const PARAM_DEFAULTS = {
             document.getElementById('play-btn').classList.remove('playing');
         }
     });
+    // iOS mute switch cannot be detected via any web API — show notice on all iOS devices
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isIOS) {
+        const notice = document.getElementById('silent-notice');
+        notice.style.display = 'block';
+        notice.addEventListener('click', () => { notice.style.display = 'none'; });
+    }
 })();
 </script>
 </body>
