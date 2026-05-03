@@ -1,35 +1,86 @@
 class KarstProcessor extends AudioWorkletProcessor {
     constructor() {
         super();
-        this.ready   = false;
-        this.exports = null;
-        this.memory  = null;
-        this.outL    = 0;
-        this.outR    = 0;
-        this.blockCount = 0;
+        this.ready      = false;
+        this.exports    = null;
+        this.memory     = null;
+        this.outL       = 0;
+        this.outR       = 0;
+        this.pathBuf    = 0;
+        this.peakSynth  = 0;
         this.peakDrum   = 0;
         this.peakHat    = 0;
-        this.peakSynth  = 0;
         this.peakMaster = 0;
+        this.blockCount = 0;
+
         this.port.onmessage = (e) => {
-            if (e.data.type === 'init') {
-                this.exports = e.data.exports;
-                this.memory  = e.data.memory;
-                this.outL    = e.data.outL;
-                this.outR    = e.data.outR;
-                this.ready   = true;
-            } else if (e.data.type === 'playing') {
-                if (this.exports) this.exports.karst_set_playing(e.data.value);
+            switch (e.data.type) {
+                case 'init':
+                    this._boot(e.data.wasmBuffer).catch(err =>
+                        this.port.postMessage({ type: 'error', message: err.message })
+                    );
+                    break;
+                case 'setParam':
+                    if (this.exports) this._setParam(e.data.path, e.data.value);
+                    break;
+                case 'setPlaying':
+                    if (this.exports) this.exports.karst_set_playing(e.data.value);
+                    break;
             }
         };
     }
 
+    _setParam(path, value) {
+        const bytes = new TextEncoder().encode(path);
+        const heap  = new Uint8Array(this.memory.buffer);
+        heap.set(bytes, this.pathBuf);
+        heap[this.pathBuf + bytes.length] = 0;
+        this.exports.karst_set_param(this.pathBuf, value);
+    }
+
+    async _boot(wasmBuffer) {
+        let mem = null;
+        const stubs = {
+            __assert_fail:          () => {},
+            __cxa_throw:            () => {},
+            _abort_js:              () => {},
+            emscripten_resize_heap: (size) => {
+                if (!mem) return 0;
+                const pages = Math.ceil((size - mem.buffer.byteLength) / 65536);
+                if (pages > 0) mem.grow(pages);
+                return 1;
+            }
+        };
+
+        const { instance } = await WebAssembly.instantiate(wasmBuffer, {
+            env:                    { memory: new WebAssembly.Memory({ initial: 1 }), ...stubs },
+            wasi_snapshot_preview1: {}
+        });
+
+        const exp = instance.exports;
+        mem = exp.memory;
+        exp.__wasm_call_ctors();
+
+        const bufBytes   = 128 * 4;
+        this.outL        = exp.malloc(bufBytes);
+        this.outR        = exp.malloc(bufBytes);
+        this.pathBuf     = exp.malloc(256);
+
+        exp.karst_init(sampleRate);
+
+        this.exports = exp;
+        this.memory  = exp.memory;
+        this.ready   = true;
+        this.port.postMessage({ type: 'ready' });
+    }
+
     process(inputs, outputs) {
         if (!this.ready) return true;
-        const out = outputs[0];
+        const exp       = this.exports;
+        const out       = outputs[0];
         const blockSize = out[0].length;
 
-        this.exports.karst_process(this.outL, this.outR, blockSize);
+        exp.karst_process(this.outL, this.outR, blockSize);
 
         const heap = new Float32Array(this.memory.buffer);
         const lOff = this.outL >>> 2;
@@ -39,11 +90,10 @@ class KarstProcessor extends AudioWorkletProcessor {
             if (out[1]) out[1][i] = heap[rOff + i];
         }
 
-        // Per-instrument peaks with envelope followers
-        const rawSynth  = this.exports.karst_get_peak_synth();
-        const rawDrum   = this.exports.karst_get_peak_drum();
-        const rawHat    = this.exports.karst_get_peak_hat();
-        const rawMaster = this.exports.karst_get_peak_master();
+        const rawSynth  = exp.karst_get_peak_synth();
+        const rawDrum   = exp.karst_get_peak_drum();
+        const rawHat    = exp.karst_get_peak_hat();
+        const rawMaster = exp.karst_get_peak_master();
 
         this.peakSynth  = Math.max(rawSynth,  this.peakSynth  * 0.92);
         this.peakDrum   = Math.max(rawDrum,   this.peakDrum   * 0.85);
@@ -53,7 +103,7 @@ class KarstProcessor extends AudioWorkletProcessor {
         this.blockCount++;
         if (this.blockCount % 2 === 0) {
             this.port.postMessage({
-                type: 'peaks',
+                type:       'peaks',
                 peakSynth:  this.peakSynth,
                 peakDrum:   this.peakDrum,
                 peakHat:    this.peakHat,
@@ -63,4 +113,5 @@ class KarstProcessor extends AudioWorkletProcessor {
         return true;
     }
 }
+
 registerProcessor('karst-processor', KarstProcessor);

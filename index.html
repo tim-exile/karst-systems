@@ -121,7 +121,6 @@ uniform float uPeakHat;
 uniform float uPeakMaster;
 uniform float uPlaying;
 
-// fBm noise from sin harmonics
 float hash(vec2 p) {
     p = fract(p * vec2(234.34, 435.345));
     p += dot(p, p + 34.23);
@@ -145,7 +144,6 @@ float fbm(vec2 p) {
     return v;
 }
 
-// Fissure pattern — sharp angular cracks
 float fissure(vec2 p, float scale) {
     vec2 q = p * scale;
     float f = fbm(q + vec2(uTime * 0.01));
@@ -160,34 +158,28 @@ void main() {
 
     float t = uTime * 0.08;
 
-    // Base stone noise — slow evolution
     vec2 stoneUV = uv * 3.0 + vec2(t * 0.3, t * 0.1);
     float stone = fbm(stoneUV);
     float stone2 = fbm(stoneUV * 1.7 + vec2(5.3, 2.1));
 
-    // Limestone base colour — pale warm grey
     vec3 stoneLight = vec3(0.91, 0.88, 0.83);
     vec3 stoneDark  = vec3(0.18, 0.16, 0.14);
     vec3 baseCol = mix(stoneDark, stoneLight, stone * 0.7 + stone2 * 0.3);
 
-    // Fissures — dark cracks
     float crack1 = fissure(uv, 2.5);
     float crack2 = fissure(uv + vec2(0.3, 0.7), 4.1);
     float cracks = max(crack1, crack2 * 0.7);
     baseCol = mix(baseCol, vec3(0.06, 0.05, 0.04), cracks * 0.85);
 
-    // Mineral staining — amber and violet
     float mineralNoise = fbm(uv * 2.0 + vec2(t * 0.15, t * 0.2) + vec2(3.1, 7.4));
     vec3 amber  = vec3(0.76, 0.52, 0.22);
     vec3 violet = vec3(0.38, 0.42, 0.72);
     vec3 mineral = mix(amber, violet, mineralNoise);
 
-    // Synth drives chromatic mineral light
     float synthLight = uPeakSynth * uPlaying;
     float mineralAmt = mineralNoise * 0.15 + synthLight * 0.55;
     vec3 col = mix(baseCol, mineral, mineralAmt * smoothstep(0.3, 0.8, stone));
 
-    // Drum hit — concentric ripple from off-centre point
     vec2 drumCentre = vec2(-0.2, 0.1);
     float drumDist = length(p - drumCentre);
     float ripple = sin(drumDist * 18.0 - uTime * 6.0) * 0.5 + 0.5;
@@ -195,11 +187,9 @@ void main() {
     float drumPulse = uPeakDrum * uPlaying * ripple * rippleMask;
     col += vec3(0.9, 0.85, 0.75) * drumPulse * 0.4;
 
-    // Hat — fine surface shimmer, high frequency
     float hatShimmer = noise(uv * 24.0 + vec2(uTime * 2.1, uTime * 1.3));
     col += vec3(0.95, 0.95, 1.0) * hatShimmer * uPeakHat * uPlaying * 0.3;
 
-    // Water shimmer — bottom third
     float waterY = smoothstep(0.4, 0.0, uv.y);
     float waterNoise = noise(vec2(uv.x * 8.0 + uTime * 0.4, uTime * 0.3));
     float waterL = noise(vec2(uv.x * 6.0 - uTime * 0.2, uTime * 0.5));
@@ -208,15 +198,12 @@ void main() {
     waterAmt += waterY * waterL * uPlaying * 0.06;
     col = mix(col, waterCol, waterAmt);
 
-    // Fine grain erosion texture
     float grain = noise(uv * 180.0 + vec2(t * 0.5)) * 0.04;
     col += grain;
 
-    // Playing state — colour saturation ramps in
     float grey = dot(col, vec3(0.299, 0.587, 0.114));
     col = mix(vec3(grey * 0.6), col, 0.25 + uPlaying * 0.75);
 
-    // Vignette
     float vig = 1.0 - smoothstep(0.5, 1.4, length(p * vec2(0.7, 0.9)));
     col *= vig * 0.85 + 0.15;
 
@@ -266,7 +253,7 @@ function initGL() {
         uPlaying:    gl.getUniformLocation(prog, 'uPlaying'),
     };
 
-    return { gl, prog, locs, canvas };
+    return { gl, locs, canvas };
 }
 
 // ─── KNOB ────────────────────────────────────────────────────────────────────
@@ -279,13 +266,11 @@ function makeKnob(el, onChange) {
     function draw() {
         const W = 48, cx = 24, cy = 24, r = 20;
         ctx.clearRect(0, 0, W, W);
-        // Track
         ctx.beginPath();
         ctx.arc(cx, cy, r, Math.PI * 0.75, Math.PI * 2.25);
         ctx.strokeStyle = 'rgba(255,255,255,0.15)';
         ctx.lineWidth = 2;
         ctx.stroke();
-        // Value arc
         const startAngle = Math.PI * 0.75;
         const endAngle   = startAngle + value * Math.PI * 1.5;
         ctx.beginPath();
@@ -293,7 +278,6 @@ function makeKnob(el, onChange) {
         ctx.strokeStyle = 'rgba(255,255,255,0.85)';
         ctx.lineWidth = 2.5;
         ctx.stroke();
-        // Centre dot
         ctx.beginPath();
         ctx.arc(cx, cy, 3, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(255,255,255,0.5)';
@@ -313,7 +297,6 @@ function makeKnob(el, onChange) {
     });
     window.addEventListener('mouseup', () => { dragging = false; });
 
-    // Touch
     el.addEventListener('touchstart', e => {
         dragging = true;
         startY = e.touches[0].clientY; startVal = value;
@@ -359,19 +342,46 @@ const MACRO_PATHS = [
 
 const STRUCTURAL = ['phraseLen','meter','mask','lvCyc','lvOff','ornBase','bpm'];
 
+// Default param values mirroring buildPatch() in karst_wasm.cpp
+const PARAM_DEFAULTS = {
+    'synthA.filter.cutoff':0.50,'synthA.filter.resonance':0.25,
+    'synthB.mod.mod1to2':0.15,'synthB.mod.mod2to1':0.05,'synthB.op2.ratio':0.25,
+    'snare.noise.snap':0.560,'hat.filter.pitch':0.547,
+    'delay.feedback.resonance':0.10,
+    'synthA.pattern.sCyc':0.33,'synthB.pattern.sCyc':0.25,
+    'delay.out.mix':0.25,'reverb.verb.mix':0.30,'delay.feedback.amount':0.35,
+    'reverb.verb.size':0.60,'reverb.verb.decay':0.70,
+    'mixer.chSynthA.delaySend':0.30,'mixer.chSynthB.delaySend':0.25,
+    'mixer.chSynthA.reverbSend':0.40,'mixer.chSynthB.reverbSend':0.35,
+    'synthA.out.level':0.65,'synthB.out.level':0.65,
+    'kick.out.level':0.80,'snare.out.level':0.65,'hat.out.level':0.40,
+    'synthB.op2.level':0.50,
+    'mixer.chSynthA.level':0.75,'mixer.chSynthB.level':0.65,
+    'mixer.chKick.level':0.90,'mixer.chSnare.level':0.75,'mixer.chHat.level':0.55,
+    'synthA.pattern.range':1.0,'synthB.pattern.range':1.0,
+    'synthA.amp.attack':0.044,'synthA.amp.decay':0.316,
+    'synthA.filter.attack':0.055,'synthA.filter.decay':0.237,
+    'synthB.op1.attack':0.028,'synthB.op1.decay':0.395,
+    'synthB.op2.attack':0.017,'synthB.op2.decay':0.237,
+    'kick.body.sweep':0.316,'kick.amp.attack':0.167,'kick.amp.decay':0.365,
+    'snare.noise.attack':0.167,'snare.noise.decay':0.395,
+    'snare.body.attack':0.083,'snare.body.decay':0.316,
+    'hat.amp.attack':0.167,'hat.amp.decay':0.237,
+    'synthA.pattern.intensity':0.6,'synthB.pattern.intensity':0.5,
+    'kick.pattern.intensity':0.8,'snare.pattern.intensity':0.7,'hat.pattern.intensity':0.75,
+};
+
 // ─── MAIN ────────────────────────────────────────────────────────────────────
 (async () => {
     const glState = initGL();
     let uTime=0, uPeakSynth=0, uPeakDrum=0, uPeakHat=0, uPeakMaster=0, uPlaying=0;
 
-    // Shader loop
     if (glState) {
         let last = performance.now();
         function frame(now) {
             const dt = (now - last) / 1000;
             last = now;
             uTime += dt;
-
             const { gl, locs, canvas } = glState;
             gl.uniform1f(locs.uTime,       uTime);
             gl.uniform2f(locs.uRes,        canvas.width, canvas.height);
@@ -388,51 +398,35 @@ const STRUCTURAL = ['phraseLen','meter','mask','lvCyc','lvOff','ornBase','bpm'];
 
     function showError(msg) {
         document.getElementById('error').style.display = 'block';
-        document.getElementById('error').textContent = 'WASM init failed: ' + msg;
+        document.getElementById('error').textContent = msg;
     }
 
-    // Load WASM via karst.js glue on main thread
-    let wasmReady = false;
-    let ModuleObj = null;
-    let outL = 0, outR = 0;
-
-    await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'karst.js';
-        s.onload = resolve;
-        s.onerror = () => reject(new Error('karst.js load failed'));
-        document.head.appendChild(s);
-    });
-
-    // Wait for Emscripten Module to finish initialising
+    // Fetch WASM binary on page load — transferred to worklet on first play
+    let wasmBuffer;
     try {
-        ModuleObj = await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Module init timeout')), 10000);
-            const check = () => {
-                if (typeof Module !== 'undefined' && Module.calledRun) {
-                    clearTimeout(timeout);
-                    resolve(Module);
-                } else {
-                    setTimeout(check, 50);
-                }
-            };
-            check();
-        });
+        const resp = await fetch('karst.wasm');
+        if (!resp.ok) throw new Error('karst.wasm ' + resp.status);
+        wasmBuffer = await resp.arrayBuffer();
     } catch(e) {
         showError(e.message);
         return;
     }
 
-    // Allocate output buffers and initialise engine on main thread
-    outL = ModuleObj._malloc(128 * 4);
-    outR = ModuleObj._malloc(128 * 4);
-    ModuleObj._karst_init(44100);
-    wasmReady = true;
+    // JS-side param state — mirrors WASM defaults, updated by macros/dice
+    const paramState = Object.assign({}, PARAM_DEFAULTS);
 
-    // Macro anchor values — captured at play time
-    let macroAnchors = MACRO_PATHS.map(paths =>
-        paths.map(p => ModuleObj.ccall('karst_get_param','number',['string'],[p]))
-    );
+    function freshAnchors() {
+        return MACRO_PATHS.map(paths =>
+            paths.map(p => paramState[p] !== undefined ? paramState[p] : 0.5)
+        );
+    }
+
+    let macroAnchors = freshAnchors();
+
+    function sendParam(path, value) {
+        paramState[path] = value;
+        if (workletNode) workletNode.port.postMessage({ type: 'setParam', path, value });
+    }
 
     function applyMacro(macroIdx, knobVal) {
         const paths   = MACRO_PATHS[macroIdx];
@@ -441,97 +435,82 @@ const STRUCTURAL = ['phraseLen','meter','mask','lvCyc','lvOff','ornBase','bpm'];
             const anchor = anchors[i];
             let newVal;
             if (knobVal <= 0.5) {
-                const t = knobVal * 2.0;
-                newVal = anchor * t;
+                newVal = anchor * (knobVal * 2.0);
             } else {
-                const t = (knobVal - 0.5) * 2.0;
-                newVal = anchor + (1.0 - anchor) * t;
+                newVal = anchor + (1.0 - anchor) * ((knobVal - 0.5) * 2.0);
             }
-            ModuleObj.ccall('karst_set_param','null',['string','number'],[path, newVal]);
+            sendParam(path, newVal);
         });
     }
 
     // Knobs
-    const knobEls = document.querySelectorAll('.macro-knob');
-    const knobs = Array.from(knobEls).map((el, i) =>
-        makeKnob(el, val => { if (wasmReady) applyMacro(i, val); })
+    const knobs = Array.from(document.querySelectorAll('.macro-knob')).map((el, i) =>
+        makeKnob(el, val => applyMacro(i, val))
     );
 
     // Dice
     document.getElementById('dice-btn').addEventListener('click', () => {
-        if (!wasmReady) return;
         const allPaths = [...new Set(MACRO_PATHS.flat())];
         allPaths.forEach(path => {
-            const isStructural = STRUCTURAL.some(s => path.includes(s));
-            if (isStructural) return;
-            const val = 0.3 + Math.random() * 0.4;
-            ModuleObj.ccall('karst_set_param','null',['string','number'],[path, val]);
+            if (STRUCTURAL.some(s => path.includes(s))) return;
+            sendParam(path, 0.3 + Math.random() * 0.4);
         });
-        // Refresh macro anchors
-        macroAnchors = MACRO_PATHS.map(paths =>
-            paths.map(p => ModuleObj.ccall('karst_get_param','number',['string'],[p]))
-        );
+        macroAnchors = freshAnchors();
         knobs.forEach(k => k.setValue(0.5));
     });
 
     // Play/stop
-    let playing = false;
-    let audioCtx = null;
+    let playing     = false;
+    let audioCtx    = null;
     let workletNode = null;
 
     document.getElementById('play-btn').addEventListener('click', async () => {
-        if (!wasmReady) return;
-
         if (!playing) {
             if (!audioCtx) {
-                audioCtx = new AudioContext({ sampleRate: 44100 });
-                await audioCtx.audioWorklet.addModule('karst-processor.js');
-                workletNode = new AudioWorkletNode(audioCtx, 'karst-processor', {
-                    numberOfOutputs: 1,
-                    outputChannelCount: [2]
-                });
-                workletNode.port.onmessage = (e) => {
-                    if (e.data.type === 'peaks') {
-                        uPeakSynth  += (e.data.peakSynth  - uPeakSynth)  * 0.08;
-                        uPeakDrum   += (e.data.peakDrum   - uPeakDrum)   * 0.15;
-                        uPeakHat    += (e.data.peakHat    - uPeakHat)    * 0.20;
-                        uPeakMaster += (e.data.peakMaster - uPeakMaster) * 0.06;
-                    }
-                };
-                workletNode.connect(audioCtx.destination);
-
-                // Build exports object from karst.js globals (wasmMemory, _karst_* fns)
-                workletNode.port.postMessage({
-                    type: 'init',
-                    exports: {
-                        karst_process:         _karst_process,
-                        karst_get_peak_synth:  _karst_get_peak_synth,
-                        karst_get_peak_drum:   _karst_get_peak_drum,
-                        karst_get_peak_hat:    _karst_get_peak_hat,
-                        karst_get_peak_master: _karst_get_peak_master,
-                        karst_set_playing:     _karst_set_playing,
-                    },
-                    memory: wasmMemory,
-                    outL, outR
-                });
+                try {
+                    audioCtx = new AudioContext({ sampleRate: 44100 });
+                    await audioCtx.audioWorklet.addModule('karst-processor.js');
+                    workletNode = new AudioWorkletNode(audioCtx, 'karst-processor', {
+                        numberOfOutputs: 1,
+                        outputChannelCount: [2]
+                    });
+                    workletNode.port.onmessage = (e) => {
+                        if (e.data.type === 'ready') {
+                            workletNode.connect(audioCtx.destination);
+                            // Re-apply any param changes made before audio started
+                            Object.entries(paramState).forEach(([path, value]) => {
+                                if (PARAM_DEFAULTS[path] !== value)
+                                    workletNode.port.postMessage({ type: 'setParam', path, value });
+                            });
+                        } else if (e.data.type === 'peaks') {
+                            uPeakSynth  += (e.data.peakSynth  - uPeakSynth)  * 0.08;
+                            uPeakDrum   += (e.data.peakDrum   - uPeakDrum)   * 0.15;
+                            uPeakHat    += (e.data.peakHat    - uPeakHat)    * 0.20;
+                            uPeakMaster += (e.data.peakMaster - uPeakMaster) * 0.06;
+                        } else if (e.data.type === 'error') {
+                            showError('worklet: ' + e.data.message);
+                        }
+                    };
+                    // Transfer the ArrayBuffer — worklet instantiates its own WASM
+                    workletNode.port.postMessage({ type: 'init', wasmBuffer }, [wasmBuffer]);
+                } catch(e) {
+                    showError(e.message);
+                    audioCtx = null;
+                    return;
+                }
+            } else {
+                workletNode.port.postMessage({ type: 'setPlaying', value: 1 });
             }
-            ModuleObj._karst_set_playing(1);
-            if (workletNode) workletNode.port.postMessage({ type: 'playing', value: 1 });
             uPlaying = 1;
-            playing = true;
+            playing  = true;
             document.getElementById('play-btn').classList.add('playing');
-
-            // Capture macro anchors fresh
-            macroAnchors = MACRO_PATHS.map(paths =>
-                paths.map(p => ModuleObj.ccall('karst_get_param','number',['string'],[p]))
-            );
+            macroAnchors = freshAnchors();
             knobs.forEach(k => k.setValue(0.5));
 
         } else {
-            ModuleObj._karst_set_playing(0);
-            if (workletNode) workletNode.port.postMessage({ type: 'playing', value: 0 });
+            workletNode.port.postMessage({ type: 'setPlaying', value: 0 });
             uPlaying = 0;
-            playing = false;
+            playing  = false;
             document.getElementById('play-btn').classList.remove('playing');
         }
     });
