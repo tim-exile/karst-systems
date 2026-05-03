@@ -401,8 +401,8 @@ const PARAM_DEFAULTS = {
         document.getElementById('error').textContent = msg;
     }
 
-    // Fetch WASM binary on page load — transferred to worklet on first play
-    let wasmBuffer;
+    // Fetch WASM binary and patch on page load
+    let wasmBuffer, patchJson = null;
     try {
         const resp = await fetch('karst.wasm');
         if (!resp.ok) throw new Error('karst.wasm ' + resp.status);
@@ -411,6 +411,10 @@ const PARAM_DEFAULTS = {
         showError(e.message);
         return;
     }
+    try {
+        const pResp = await fetch('patch.karst');
+        if (pResp.ok) patchJson = await pResp.text();
+    } catch(e) {} // Optional — engine runs without a patch
 
     // JS-side param state — mirrors WASM defaults, updated by macros/dice
     const paramState = Object.assign({}, PARAM_DEFAULTS);
@@ -454,13 +458,30 @@ const PARAM_DEFAULTS = {
     // Dice
     document.getElementById('dice-btn').addEventListener('click', () => {
         const allPaths = [...new Set(MACRO_PATHS.flat())];
-        allPaths.forEach(path => {
-            if (STRUCTURAL.some(s => path.includes(s))) return;
-            sendParam(path, 0.3 + Math.random() * 0.4);
-        });
+        if (scenes.length >= 2 && paramPaths.length > 0) {
+            // Cross-pollinate from loaded scenes: each param independently picks a random scene
+            allPaths.forEach(path => {
+                if (STRUCTURAL.some(s => path.includes(s))) return;
+                const idx = paramPaths.indexOf(path);
+                if (idx === -1) return;
+                const scene = scenes[Math.floor(Math.random() * scenes.length)];
+                if (idx < scene.values.length)
+                    sendParam(path, scene.values[idx]);
+            });
+        } else {
+            // Fallback: uniform random in musical range
+            allPaths.forEach(path => {
+                if (STRUCTURAL.some(s => path.includes(s))) return;
+                sendParam(path, 0.3 + Math.random() * 0.4);
+            });
+        }
         macroAnchors = freshAnchors();
         knobs.forEach(k => k.setValue(0.5));
     });
+
+    // Scenes received from worklet after patch load
+    let scenes     = [];
+    let paramPaths = []; // registry order — index aligns with scene.values
 
     // Play/stop
     let playing     = false;
@@ -479,6 +500,10 @@ const PARAM_DEFAULTS = {
                     });
                     workletNode.port.onmessage = (e) => {
                         if (e.data.type === 'ready') {
+                            if (e.data.scenes && e.data.scenes.length > 0) {
+                                scenes     = e.data.scenes;
+                                paramPaths = e.data.paramPaths || [];
+                            }
                             workletNode.connect(audioCtx.destination);
                             // Re-apply any param changes made before audio started
                             Object.entries(paramState).forEach(([path, value]) => {
@@ -495,7 +520,7 @@ const PARAM_DEFAULTS = {
                         }
                     };
                     // Transfer the ArrayBuffer — worklet instantiates its own WASM
-                    workletNode.port.postMessage({ type: 'init', wasmBuffer }, [wasmBuffer]);
+                    workletNode.port.postMessage({ type: 'init', wasmBuffer, patchJson }, [wasmBuffer]);
                 } catch(e) {
                     showError(e.message);
                     audioCtx = null;

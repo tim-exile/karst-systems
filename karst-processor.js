@@ -16,7 +16,7 @@ class KarstProcessor extends AudioWorkletProcessor {
         this.port.onmessage = (e) => {
             switch (e.data.type) {
                 case 'init':
-                    this._boot(e.data.wasmBuffer).catch(err =>
+                    this._boot(e.data.wasmBuffer, e.data.patchJson || null).catch(err =>
                         this.port.postMessage({ type: 'error', message: err.message })
                     );
                     break;
@@ -41,7 +41,14 @@ class KarstProcessor extends AudioWorkletProcessor {
         this.exports.karst_set_param(this.pathBuf, value);
     }
 
-    async _boot(wasmBuffer) {
+    _readString(ptr, len) {
+        const bytes = new Uint8Array(this.memory.buffer, ptr, len);
+        let s = '';
+        for (let i = 0; i < len; i++) s += String.fromCharCode(bytes[i]);
+        return s;
+    }
+
+    async _boot(wasmBuffer, patchJson) {
         let mem = null;
         const stubs = {
             __assert_fail:          () => {},
@@ -73,8 +80,39 @@ class KarstProcessor extends AudioWorkletProcessor {
 
         this.exports = exp;
         this.memory  = exp.memory;
-        this.ready   = true;
-        this.port.postMessage({ type: 'ready' });
+
+        // Load patch if provided
+        if (patchJson) {
+            const jsonBuf = exp.malloc(patchJson.length + 1);
+            const heap    = new Uint8Array(exp.memory.buffer);
+            for (let i = 0; i < patchJson.length; i++)
+                heap[jsonBuf + i] = patchJson.charCodeAt(i);
+            heap[jsonBuf + patchJson.length] = 0;
+            exp.karst_load_patch(jsonBuf, patchJson.length);
+            exp.free(jsonBuf);
+        }
+
+        // Read param paths (registry order) → build path→index map
+        const pathsBufSize = 32768;
+        const pathsBuf     = exp.malloc(pathsBufSize);
+        const pathsLen     = exp.karst_get_registry_paths_json(pathsBuf, pathsBufSize);
+        const paramPaths   = pathsLen > 0 ? JSON.parse(this._readString(pathsBuf, pathsLen)) : [];
+        exp.free(pathsBuf);
+
+        // Read scenes
+        const sceneCount   = exp.karst_get_scene_count();
+        const scenes       = [];
+        const sceneBufSize = 65536;
+        const sceneBuf     = exp.malloc(sceneBufSize);
+        for (let si = 0; si < sceneCount; si++) {
+            const len = exp.karst_get_scene_json(si, sceneBuf, sceneBufSize);
+            if (len > 0)
+                scenes.push(JSON.parse(this._readString(sceneBuf, len)));
+        }
+        exp.free(sceneBuf);
+
+        this.ready = true;
+        this.port.postMessage({ type: 'ready', scenes, paramPaths });
     }
 
     process(inputs, outputs) {
