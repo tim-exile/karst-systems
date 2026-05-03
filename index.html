@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>karst</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -637,7 +638,13 @@ const PARAM_DEFAULTS = {
         if (!playing) {
             if (!audioCtx) {
                 try {
-                    audioCtx = new AudioContext({ sampleRate: 44100 });
+                    audioCtx = new AudioContext({ sampleRate: 44100, latencyHint: 'interactive' });
+                    // Unlock audio on iOS silent mode
+                    const silentBuffer = audioCtx.createBuffer(1, 1, 22050);
+                    const silentSource = audioCtx.createBufferSource();
+                    silentSource.buffer = silentBuffer;
+                    silentSource.connect(audioCtx.destination);
+                    silentSource.start(0);
                     await audioCtx.audioWorklet.addModule('karst-processor.js');
                     workletNode = new AudioWorkletNode(audioCtx, 'karst-processor', {
                         numberOfOutputs: 1,
