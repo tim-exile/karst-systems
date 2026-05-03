@@ -51,7 +51,7 @@ class KarstProcessor extends AudioWorkletProcessor {
         exp.karst_init(sampleRate);
 
         this.exports = exp;
-        this.memory  = memory;
+        this.memory  = exp.memory || memory;
         this.ready   = true;
         this.port.postMessage({ type: 'ready' });
     }
