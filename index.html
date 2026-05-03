@@ -24,9 +24,7 @@
     transition: background 0.15s;
   }
   #btn.playing { background: #fff; }
-  #label {
-    color: #fff; font-size: 13px; letter-spacing: 0.1em;
-  }
+  #label { color: #fff; font-size: 13px; letter-spacing: 0.1em; }
   #error {
     display: none; color: #fff; font-size: 13px;
     font-family: monospace; text-align: center; max-width: 320px;
@@ -42,64 +40,99 @@
 </div>
 <div id="error"></div>
 
+<!-- Must be defined BEFORE karst.js loads so Emscripten picks up the overrides -->
 <script>
-(async () => {
-    const ui     = document.getElementById('ui');
-    const btn    = document.getElementById('btn');
-    const errDiv = document.getElementById('error');
+let moduleReady = false;
+let outL, outR;
+let _rawExports;
 
-    function showError(msg) {
-        ui.style.display = 'none';
-        errDiv.style.display = 'block';
-        errDiv.textContent = msg;
+function showError(msg) {
+    document.getElementById('ui').style.display = 'none';
+    const d = document.getElementById('error');
+    d.style.display = 'block';
+    d.textContent = msg;
+}
+
+var Module = {
+    // Intercept WASM instantiation to capture the raw exports object,
+    // which includes exports.memory (WebAssembly.Memory) and raw function refs
+    instantiateWasm(imports, receive) {
+        fetch('karst.wasm')
+            .then(r => {
+                if (!r.ok) throw new Error('karst.wasm fetch failed: ' + r.status);
+                return r.arrayBuffer();
+            })
+            .then(buf => WebAssembly.instantiate(buf, imports))
+            .then(({ instance }) => {
+                _rawExports = instance.exports;
+                receive(instance);
+            })
+            .catch(e => showError('WASM load failed: ' + e.message));
+        return {};
+    },
+
+    onRuntimeInitialized() {
+        console.log('Module ready');
+        Module.asm = _rawExports;
+        Module._karst_init(44100);
+        outL = Module._malloc(128 * 4);
+        outR = Module._malloc(128 * 4);
+        console.log('karst_init done  outL=' + outL + '  outR=' + outR);
+        moduleReady = true;
     }
+};
+</script>
+<script src="karst.js"></script>
+<script>
+const ui  = document.getElementById('ui');
+const btn = document.getElementById('btn');
+let started = false;
 
-    // Fetch WASM on page load so it's ready before the first click
-    let wasmBuffer;
+ui.addEventListener('click', async () => {
+    if (!moduleReady) { console.log('Module not ready yet'); return; }
+    if (started) return;
+    started = true;
+
     try {
-        const resp = await fetch('karst.wasm');
-        if (!resp.ok) throw new Error(`karst.wasm fetch failed: ${resp.status}`);
-        wasmBuffer = await resp.arrayBuffer();
-    } catch (err) {
-        showError(err.message);
-        return;
-    }
+        console.log('click fired');
 
-    let started = false;
+        const ctx = new AudioContext({ sampleRate: 44100 });
+        console.log('AudioContext created', ctx.sampleRate);
 
-    ui.addEventListener('click', async () => {
-        if (started) return;
-        started = true;
-
-        let ctx;
-        try {
-            ctx = new AudioContext({ sampleRate: 44100 });
-            await ctx.audioWorklet.addModule('karst-processor.js');
-        } catch (err) {
-            showError('AudioWorklet failed: ' + err.message);
-            started = false;
-            return;
-        }
+        await ctx.audioWorklet.addModule('karst-processor.js');
+        console.log('worklet module loaded');
 
         const node = new AudioWorkletNode(ctx, 'karst-processor', {
             numberOfOutputs: 1,
             outputChannelCount: [2]
         });
+        console.log('node created');
 
         node.port.onmessage = (e) => {
-            if (e.data.type === 'ready') {
-                node.connect(ctx.destination);
-                btn.classList.add('playing');
-            } else if (e.data.type === 'error') {
-                showError('WASM init failed: ' + e.data.message);
-                started = false;
+            if (e.data.type === 'error') {
+                console.error('worklet error:', e.data.message);
+                showError('worklet error: ' + e.data.message);
             }
         };
 
-        // Transfer the ArrayBuffer — worklet takes ownership and instantiates its own WASM
-        node.port.postMessage({ type: 'init', wasmBuffer }, [wasmBuffer]);
-    });
-})();
+        console.log('posting init to worklet');
+        node.port.postMessage({
+            type:    'init',
+            exports: Module.asm,
+            memory:  Module.asm.memory,
+            outL,
+            outR
+        });
+
+        node.connect(ctx.destination);
+        btn.classList.add('playing');
+        console.log('node connected — audio should be playing');
+    } catch (err) {
+        console.error('error in click handler:', err);
+        showError(err.message);
+        started = false;
+    }
+});
 </script>
 </body>
 </html>

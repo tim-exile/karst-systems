@@ -4,51 +4,13 @@ class KarstProcessor extends AudioWorkletProcessor {
         this.ready = false;
         this.port.onmessage = (e) => {
             if (e.data.type === 'init') {
-                this._initWasm(e.data.wasmBuffer).catch(err => {
-                    this.port.postMessage({ type: 'error', message: err.message });
-                });
+                this.exports = e.data.exports;
+                this.memory = e.data.memory;
+                this.outL = e.data.outL;
+                this.outR = e.data.outR;
+                this.ready = true;
             }
         };
-    }
-
-    async _initWasm(wasmBuffer) {
-        const memory = new WebAssembly.Memory({ initial: 512, maximum: 32768 });
-
-        const stubs = {
-            __assert_fail: () => {},
-            __cxa_throw: () => {},
-            _abort_js: () => {},
-            emscripten_resize_heap: (size) => {
-                const need = Math.ceil((size - memory.buffer.byteLength) / 65536);
-                if (need > 0) memory.grow(need);
-                return 1;
-            },
-            random_get: (ptr, len) => {
-                crypto.getRandomValues(new Uint8Array(memory.buffer, ptr, len));
-                return 0;
-            }
-        };
-
-        const { instance } = await WebAssembly.instantiate(wasmBuffer, {
-            env: { memory, ...stubs },
-            wasi_snapshot_preview1: stubs
-        });
-
-        const exp = instance.exports;
-        exp.__wasm_call_ctors();
-
-        // Carve output buffers from stack before karst_init — stack grows downward
-        // so these pointers remain valid for the lifetime of the worklet
-        const bufBytes = 128 * 4;
-        this.outR = exp._emscripten_stack_alloc(bufBytes);
-        this.outL = exp._emscripten_stack_alloc(bufBytes);
-
-        exp.karst_init(sampleRate);
-
-        this.exports = exp;
-        this.memory = memory;
-        this.ready = true;
-        this.port.postMessage({ type: 'ready' });
     }
 
     process(inputs, outputs) {
