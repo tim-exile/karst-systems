@@ -29,7 +29,7 @@ html, body {
 #ui::before {
     content:'';
     position:absolute;
-    width:520px; height:320px;
+    width:100%; height:60%;
     top:50%; left:50%;
     transform:translate(-50%,-50%);
     background:radial-gradient(ellipse at center,
@@ -40,62 +40,55 @@ html, body {
     z-index:-1;
 }
 #play-btn {
-    width:clamp(64px, 12vw, 88px);
-    height:clamp(64px, 12vw, 88px);
+    width:clamp(52px, 9vw, 68px);
+    height:clamp(52px, 9vw, 68px);
     border-radius:50%;
-    border:2px solid rgba(255,255,255,0.9);
+    border:1.5px solid rgba(255,255,255,0.85);
     background:transparent;
     cursor:pointer;
     pointer-events:all;
     transition:background 0.2s, border-color 0.2s;
     flex-shrink:0;
-    box-shadow:0 0 0 6px rgba(0,0,0,0.35), 0 0 20px rgba(0,0,0,0.4);
+    box-shadow:0 0 0 5px rgba(0,0,0,0.3), 0 0 18px rgba(0,0,0,0.35);
 }
 #play-btn.playing {
-    background:rgba(255,255,255,0.9);
+    background:rgba(255,255,255,0.88);
 }
 #macros {
-    display:flex; gap:clamp(16px, 4vw, 40px); align-items:flex-start;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    width:100%; padding:0 clamp(16px, 5vw, 48px); gap:0;
     pointer-events:all;
 }
 .macro-wrap {
     display:flex; flex-direction:column; align-items:center; gap:8px;
 }
 .macro-knob {
-    width:clamp(40px, 7vw, 52px);
-    height:clamp(40px, 7vw, 52px);
-    border-radius:50%;
+    width:clamp(44px, 8vw, 56px);
+    height:clamp(44px, 8vw, 56px);
     cursor:ns-resize;
     position:relative;
     flex-shrink:0;
 }
 .macro-knob canvas {
-    width:clamp(40px, 7vw, 52px);
-    height:clamp(40px, 7vw, 52px);
+    width:100%; height:100%;
 }
 .macro-label {
-    color:rgba(255,255,255,0.6);
-    font-size:10px; letter-spacing:0.15em;
+    color:rgba(255,255,255,0.65);
+    font-size:clamp(9px, 2vw, 11px); letter-spacing:0.12em;
     text-align:center;
     text-shadow:0 0 8px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,1);
 }
 #dice-btn {
-    width:48px; height:48px;
-    border-radius:50%;
-    border:1.5px solid rgba(255,255,255,0.6);
-    background:rgba(0,0,0,0.3);
-    color:rgba(255,255,255,0.85);
-    font-size:22px;
-    display:flex; align-items:center; justify-content:center;
+    background:none; border:none;
+    color:rgba(255,255,255,0.8);
+    font-size:clamp(32px, 7vw, 44px);
     cursor:pointer;
     pointer-events:all;
-    transition:border-color 0.15s, background 0.15s;
-    text-shadow:0 0 6px rgba(0,0,0,0.8);
-    box-shadow:0 0 0 4px rgba(0,0,0,0.25);
+    text-shadow:0 0 10px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,1);
+    line-height:1;
 }
 #dice-btn:hover {
-    border-color:rgba(255,255,255,0.9);
-    background:rgba(0,0,0,0.5);
+    color:rgba(255,255,255,1);
 }
 #error {
     position:fixed; top:50%; left:50%;
@@ -369,21 +362,21 @@ function makeKnob(el, onChange) {
     let startY = 0, startVal = 0, dragging = false;
 
     function draw() {
-        const W = cv.clientWidth || 48;
+        const W = cv.offsetWidth || 48;
         cv.width = W; cv.height = W;
-        const cx = W/2, cy = W/2, r = W/2 - 4;
+        const cx = W/2, cy = W/2, r = W/2 - 5;
         ctx.clearRect(0, 0, W, W);
         ctx.beginPath();
         ctx.arc(cx, cy, r, Math.PI * 0.75, Math.PI * 2.25);
-        ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.lineWidth = 1.5;
         ctx.stroke();
         const startAngle = Math.PI * 0.75;
         const endAngle   = startAngle + value * Math.PI * 1.5;
         ctx.beginPath();
         ctx.arc(cx, cy, r, startAngle, endAngle);
-        ctx.strokeStyle = 'rgba(255,255,255,0.88)';
-        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = 2;
         ctx.stroke();
         ctx.beginPath();
         ctx.arc(cx, cy, 3, 0, Math.PI * 2);
